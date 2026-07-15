@@ -1,125 +1,229 @@
-/**
- * ESP32-S3 算力板固件
- * UART收CAM数据 → EAR/MAR → PERCLOS → I2S告警 + MQTT上报 + IR LED
- */
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "driver/uart.h"
+
+#include "config.h"
 #include "driver/gpio.h"
 #include "driver/i2s_std.h"
 #include "driver/ledc.h"
+#include "driver/uart.h"
+#include "dms_s3_pipeline.h"
+#include "esp_event.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
-#include "esp_event.h"
-#include "nvs_flash.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+#include "freertos/task.h"
 #include "mqtt_client.h"
-#include "config.h"
-#include "ear_mar.h"
-#include "perclos.h"
+#include "nvs_flash.h"
 
-static const char *TAG = "S3";
-static i2s_chan_handle_t i2s_h = NULL;
-static esp_mqtt_client_handle_t mqtt = NULL;
+static const char *TAG = "DMS_S3";
+static i2s_chan_handle_t audio_channel;
+static EventGroupHandle_t network_events;
+static esp_mqtt_client_handle_t mqtt_client;
 
-// ── I2S音频 ──
-static void audio_init(void) {
-    i2s_chan_config_t cc = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-    i2s_new_channel(&cc, &i2s_h, NULL);
-    i2s_std_config_t sc = {
-        .clk_cfg=I2S_STD_CLK_DEFAULT_CONFIG(16000),
-        .slot_cfg=I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
-        .gpio_cfg={.mclk=I2S_GPIO_UNUSED,.bclk=I2S_BCLK_PIN,.ws=I2S_LRC_PIN,.dout=I2S_DIN_PIN,.din=I2S_GPIO_UNUSED}
-    };
-    i2s_channel_init_std_mode(i2s_h, &sc);
-    i2s_channel_enable(i2s_h);
-    gpio_set_direction(I2S_SD_PIN, GPIO_MODE_OUTPUT);
-    gpio_set_level(I2S_SD_PIN, 1);
-    ESP_LOGI(TAG, "I2S OK");
-}
-static void audio_beep(int hz, int ms) {
-    if(!i2s_h) return;
-    int n=16000*ms/1000;
-    int16_t *b=malloc(n*2);
-    for(int i=0;i<n;i++) b[i]=(int16_t)(6000*sinf(2*M_PI*hz*i/16000.0f));
-    size_t w; i2s_channel_write(i2s_h,b,n*2,&w,1000);
-    free(b);
+#define WIFI_CONNECTED_BIT BIT0
+#define MQTT_CONNECTED_BIT BIT1
+
+static bool string_is_placeholder(const char *value)
+{
+    return value == NULL || strstr(value, "YOUR_") != NULL || strstr(value, "replace_me") != NULL;
 }
 
-// ── 外设测试 ──
-static void test_uart_rx(void) {
-    ESP_LOGI(TAG,"UART RX test on GPIO%d...",UART_RX_PIN);
-    uart_config_t uc={.baud_rate=UART_BAUD,.data_bits=UART_DATA_8_BITS,.parity=UART_PARITY_DISABLE,.stop_bits=UART_STOP_BITS_1,.flow_ctrl=UART_HW_FLOWCTRL_DISABLE};
-    uart_driver_install(UART_NUM,4096,0,0,NULL,0);
-    uart_param_config(UART_NUM,&uc);
-    uart_set_pin(UART_NUM,UART_TX_PIN,UART_RX_PIN,UART_PIN_NO_CHANGE,UART_PIN_NO_CHANGE);
-    uint8_t buf[512]; int cnt=0;
-    while(1){
-        int len=uart_read_bytes(UART_NUM,buf,sizeof(buf)-1,pdMS_TO_TICKS(500));
-        if(len>0){ buf[len]=0; cnt++; if(cnt%10==0) ESP_LOGI(TAG,"收到%d包 最新%d字节",cnt,len); }
+static bool init_uart(void)
+{
+    const uart_config_t config = {.baud_rate = DMS_UART_BAUD_RATE,
+                                  .data_bits = UART_DATA_8_BITS,
+                                  .parity = UART_PARITY_DISABLE,
+                                  .stop_bits = UART_STOP_BITS_1,
+                                  .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+                                  .source_clk = UART_SCLK_DEFAULT};
+    return uart_driver_install(DMS_UART_PORT, DMS_UART_RX_BUFFER_SIZE, 0, 0, NULL, 0) == ESP_OK &&
+           uart_param_config(DMS_UART_PORT, &config) == ESP_OK &&
+           uart_set_pin(DMS_UART_PORT, DMS_UART_TX_PIN, DMS_UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) == ESP_OK;
+}
+
+static void run_uart_raw_link_test(void)
+{
+    uint8_t buffer[128];
+    ESP_LOGI(TAG, "raw UART test: RX GPIO%d, TX GPIO%d", DMS_UART_RX_PIN, DMS_UART_TX_PIN);
+    while (true) {
+        const int length = uart_read_bytes(DMS_UART_PORT, buffer, sizeof(buffer), pdMS_TO_TICKS(500U));
+        if (length > 0) {
+            ESP_LOGI(TAG, "raw UART received %d byte(s)", length);
+        }
     }
 }
-static void test_i2s(void) {
-    audio_init();
-    ESP_LOGI(TAG,"播放测试音...");
-    audio_beep(440,500); vTaskDelay(300);
-    audio_beep(660,500); vTaskDelay(300);
-    audio_beep(880,500);
-    ESP_LOGI(TAG,"I2S测试完成");
-}
-static void test_ir_led(void) {
-    ledc_timer_config_t t={.speed_mode=LEDC_LOW_SPEED_MODE,.duty_resolution=LEDC_TIMER_10_BIT,.timer_num=LEDC_TIMER_0,.freq_hz=5000,.clk_cfg=LEDC_AUTO_CLK};
-    ledc_timer_config(&t);
-    ledc_channel_config_t c={.gpio_num=IR_LED_PIN,.speed_mode=LEDC_LOW_SPEED_MODE,.channel=LEDC_CHANNEL_0,.timer_sel=LEDC_TIMER_0,.duty=0};
-    ledc_channel_config(&c);
-    ESP_LOGI(TAG,"IR LED渐亮...");
-    for(int d=0;d<=1023;d+=64){ledc_set_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0,d);ledc_update_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0);vTaskDelay(30);}
-    vTaskDelay(2000);
-    ledc_set_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0,0);ledc_update_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0);
-    ESP_LOGI(TAG,"IR LED测试完成");
+
+static void log_protocol_diagnostics(const dms_uart_parser_t *parser, const dms_s3_pipeline_t *pipeline)
+{
+    ESP_LOGI(TAG,
+             "frames=%lu crc=%lu len=%lu ver=%lu gaps=%lu timeout=%lu model=%lu unavailable=%lu model_timeout=%lu level=%d alert=%d",
+             (unsigned long)parser->stats.frames_ok, (unsigned long)parser->stats.crc_errors,
+             (unsigned long)parser->stats.bad_length_errors, (unsigned long)parser->stats.bad_version_errors,
+             (unsigned long)parser->stats.sequence_gap_count, (unsigned long)parser->stats.timeout_count,
+             (unsigned long)pipeline->model_result_count, (unsigned long)pipeline->model_unavailable_count,
+             (unsigned long)pipeline->model_result_timeout_count, pipeline->fatigue.level,
+             pipeline->fatigue.should_send_alert);
 }
 
-// ── WiFi/MQTT测试 ──
-static EventGroupHandle_t evt;
-static void wifi_cb(void*a,esp_event_base_t b,int32_t id,void*d){
-    if(b==WIFI_EVENT&&id==WIFI_EVENT_STA_START) esp_wifi_connect();
-    else if(b==IP_EVENT&&id==IP_EVENT_STA_GOT_IP){ ip_event_got_ip_t*e=d; ESP_LOGI(TAG,"WiFi OK IP:"IPSTR,IP2STR(&e->ip_info.ip)); xEventGroupSetBits(evt,1); }
-}
-static void mqtt_cb(void*a,esp_event_base_t b,int32_t id,void*d){
-    if(id==MQTT_EVENT_CONNECTED){ESP_LOGI(TAG,"MQTT OK");xEventGroupSetBits(evt,2);}
-    else if(id==MQTT_EVENT_PUBLISHED) ESP_LOGI(TAG,"MQTT sent");
-}
-static void test_mqtt(void) {
-    evt=xEventGroupCreate();
-    nvs_flash_init(); esp_netif_init(); esp_event_loop_create_default(); esp_netif_create_default_wifi_sta();
-    wifi_init_config_t wc=WIFI_INIT_CONFIG_DEFAULT(); esp_wifi_init(&wc);
-    esp_event_handler_register(WIFI_EVENT,ESP_EVENT_ANY_ID,wifi_cb,NULL);
-    esp_event_handler_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wifi_cb,NULL);
-    wifi_config_t wcfg={.sta={.ssid=WIFI_SSID,.password=WIFI_PASSWORD}};
-    esp_wifi_set_mode(WIFI_MODE_STA); esp_wifi_set_config(WIFI_IF_STA,&wcfg); esp_wifi_start();
-    if(!(xEventGroupWaitBits(evt,1,pdTRUE,pdTRUE,20000)&1)){ESP_LOGE(TAG,"WiFi失败");return;}
-    esp_mqtt_client_config_t mc={.broker.address.uri=MQTT_BROKER_URL};
-    mqtt=esp_mqtt_client_init(&mc);
-    esp_mqtt_client_register_event(mqtt,ESP_EVENT_ANY_ID,mqtt_cb,NULL);
-    esp_mqtt_client_start(mqtt);
-    if(!(xEventGroupWaitBits(evt,2,pdTRUE,pdTRUE,10000)&2)){ESP_LOGE(TAG,"MQTT失败");return;}
-    esp_mqtt_client_publish(mqtt,MQTT_TOPIC,"{\"test\":\"ESP32-S3 MQTT OK\"}",0,1,0);
-    ESP_LOGI(TAG,"MQTT测试完成, 10秒后退出"); vTaskDelay(10000);
+static void run_protocol_state_machine(void)
+{
+    uint8_t buffer[256];
+    dms_uart_parser_t parser;
+    dms_s3_pipeline_t pipeline;
+    uint32_t last_log_ms = 0U;
+    dms_uart_parser_init(&parser);
+    dms_s3_pipeline_init(&pipeline);
+    while (true) {
+        const uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000LL);
+        const int length = uart_read_bytes(DMS_UART_PORT, buffer, sizeof(buffer), pdMS_TO_TICKS(100U));
+        if (length > 0) {
+            dms_uart_parser_feed(&parser, buffer, (size_t)length, now_ms, dms_s3_pipeline_handle_frame, &pipeline);
+        }
+        dms_uart_parser_advance_time(&parser, now_ms, DMS_UART_FRAME_TIMEOUT_MS);
+        dms_s3_pipeline_advance_time(&pipeline, now_ms);
+        if (pipeline.fatigue.should_send_alert) {
+            ESP_LOGW(TAG, "fatigue alert decision: level=%d cause=%d", pipeline.fatigue.level, pipeline.fatigue.cause);
+        }
+        if (now_ms - last_log_ms >= 1000U) {
+            log_protocol_diagnostics(&parser, &pipeline);
+            last_log_ms = now_ms;
+        }
+    }
 }
 
-void app_main(void) {
+static void test_i2s(void)
+{
+    const i2s_chan_config_t channel_config = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+    const i2s_std_config_t standard_config = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(16000),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {.mclk = I2S_GPIO_UNUSED,
+                     .bclk = I2S_BCLK_PIN,
+                     .ws = I2S_LRC_PIN,
+                     .dout = I2S_DIN_PIN,
+                     .din = I2S_GPIO_UNUSED},
+    };
+    if (i2s_new_channel(&channel_config, &audio_channel, NULL) != ESP_OK ||
+        i2s_channel_init_std_mode(audio_channel, &standard_config) != ESP_OK || i2s_channel_enable(audio_channel) != ESP_OK) {
+        ESP_LOGE(TAG, "I2S test initialization failed");
+        return;
+    }
+    gpio_set_direction(I2S_SD_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(I2S_SD_PIN, 1);
+    ESP_LOGI(TAG, "I2S interface initialized; audio output requires hardware confirmation");
+}
+
+static void test_ir_led(void)
+{
+    const ledc_timer_config_t timer = {.speed_mode = LEDC_LOW_SPEED_MODE,
+                                       .duty_resolution = LEDC_TIMER_10_BIT,
+                                       .timer_num = LEDC_TIMER_0,
+                                       .freq_hz = 5000,
+                                       .clk_cfg = LEDC_AUTO_CLK};
+    const ledc_channel_config_t channel = {.gpio_num = IR_LED_PIN,
+                                           .speed_mode = LEDC_LOW_SPEED_MODE,
+                                           .channel = LEDC_CHANNEL_0,
+                                           .timer_sel = LEDC_TIMER_0,
+                                           .duty = 0};
+    if (ledc_timer_config(&timer) != ESP_OK || ledc_channel_config(&channel) != ESP_OK) {
+        ESP_LOGE(TAG, "IR LED test initialization failed");
+        return;
+    }
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 512U);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+    ESP_LOGI(TAG, "IR LED PWM configured; optical output is unverified");
+}
+
+static void network_event_handler(void *argument, esp_event_base_t event_base, int32_t event_id, void *event_data)
+{
+    (void)argument;
+    (void)event_data;
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        (void)esp_wifi_connect();
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        xEventGroupSetBits(network_events, WIFI_CONNECTED_BIT);
+    } else if (event_base == MQTT_EVENTS && event_id == MQTT_EVENT_CONNECTED) {
+        xEventGroupSetBits(network_events, MQTT_CONNECTED_BIT);
+    }
+}
+
+static void test_wifi_mqtt(void)
+{
+    if (string_is_placeholder(DMS_WIFI_SSID) || string_is_placeholder(DMS_WIFI_PASSWORD) ||
+        string_is_placeholder(DMS_MQTT_BROKER_URL)) {
+        ESP_LOGE(TAG, "Wi-Fi/MQTT test blocked: configure ignored dms_secrets.h or NVS credentials first");
+        return;
+    }
+    network_events = xEventGroupCreate();
+    if (network_events == NULL || nvs_flash_init() != ESP_OK || esp_netif_init() != ESP_OK ||
+        esp_event_loop_create_default() != ESP_OK || esp_netif_create_default_wifi_sta() == NULL) {
+        ESP_LOGE(TAG, "Wi-Fi/MQTT test initialization failed");
+        return;
+    }
+    const wifi_init_config_t wifi_init = WIFI_INIT_CONFIG_DEFAULT();
+    const wifi_config_t wifi_config = {.sta = {.ssid = DMS_WIFI_SSID, .password = DMS_WIFI_PASSWORD}};
+    if (esp_wifi_init(&wifi_init) != ESP_OK ||
+        esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, network_event_handler, NULL) != ESP_OK ||
+        esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, network_event_handler, NULL) != ESP_OK ||
+        esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK || esp_wifi_set_config(WIFI_IF_STA, &wifi_config) != ESP_OK ||
+        esp_wifi_start() != ESP_OK) {
+        ESP_LOGE(TAG, "Wi-Fi start failed");
+        return;
+    }
+    if ((xEventGroupWaitBits(network_events, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(20000U)) &
+         WIFI_CONNECTED_BIT) == 0U) {
+        ESP_LOGE(TAG, "Wi-Fi did not connect within timeout");
+        return;
+    }
+    const esp_mqtt_client_config_t mqtt_config = {.broker.address.uri = DMS_MQTT_BROKER_URL};
+    mqtt_client = esp_mqtt_client_init(&mqtt_config);
+    if (mqtt_client == NULL || esp_mqtt_client_register_event(mqtt_client, ESP_EVENT_ANY_ID, network_event_handler, NULL) != ESP_OK ||
+        esp_mqtt_client_start(mqtt_client) != ESP_OK) {
+        ESP_LOGE(TAG, "MQTT start failed");
+        return;
+    }
+    if ((xEventGroupWaitBits(network_events, MQTT_CONNECTED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(10000U)) &
+         MQTT_CONNECTED_BIT) == 0U) {
+        ESP_LOGE(TAG, "MQTT did not connect within timeout");
+        return;
+    }
+    (void)esp_mqtt_client_publish(mqtt_client, DMS_MQTT_TOPIC, "{\"test\":\"dms_s3_mqtt\"}", 0, 1, 0);
+    ESP_LOGI(TAG, "Wi-Fi/MQTT test publish requested; hardware/network outcome still requires board logs");
+}
+
+void app_main(void)
+{
     gpio_set_direction(STATUS_LED_PIN, GPIO_MODE_OUTPUT);
     gpio_set_level(STATUS_LED_PIN, 1);
-    ESP_LOGI(TAG,"ESP32-S3 DMS 算力板 TEST_MODE=%d", TEST_MODE);
-    switch(TEST_MODE){
-        case 1: test_uart_rx(); break;
-        case 2: test_i2s(); break;
-        case 3: test_ir_led(); break;
-        case 4: test_mqtt(); break;
-        case 5: test_uart_rx(); break; // TODO:综合模式
-        default: ESP_LOGW(TAG,"未知模式");
+    ESP_LOGI(TAG, "ESP32-S3 mode=%d", TEST_MODE);
+    if (!init_uart()) {
+        ESP_LOGE(TAG, "UART initialization failed");
+        return;
+    }
+    switch (TEST_MODE) {
+    case TEST_MODE_UART_RAW_LINK:
+        run_uart_raw_link_test();
+        break;
+    case TEST_MODE_UART_PROTOCOL:
+    case TEST_MODE_FULL_PROTOCOL_STATE_MACHINE:
+        run_protocol_state_machine();
+        break;
+    case TEST_MODE_I2S:
+        test_i2s();
+        break;
+    case TEST_MODE_IR_LED:
+        test_ir_led();
+        break;
+    case TEST_MODE_WIFI_MQTT:
+        test_wifi_mqtt();
+        break;
+    default:
+        ESP_LOGE(TAG, "unsupported TEST_MODE=%d", TEST_MODE);
+        break;
     }
 }

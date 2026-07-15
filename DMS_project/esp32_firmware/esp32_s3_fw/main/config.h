@@ -1,41 +1,66 @@
-/**
- * ESP32-S3 算力板配置 —— UART接收 → EAR/MAR → PERCLOS → I2S音频 + MQTT + IR LED
- */
-#ifndef CONFIG_H
-#define CONFIG_H
+#ifndef DMS_S3_CONFIG_H
+#define DMS_S3_CONFIG_H
 
-// ── UART 接收（接 ESP32-CAM 的 TX）──
-#define UART_RX_PIN     17
-#define UART_TX_PIN     18    // 预留（调试用，不用接）
-#define UART_BAUD       115200
-#define UART_NUM        1
+/* USER ACTION REQUIRED: confirm the physical CAM-TX to S3-RX connection and
+ * common ground before treating UART traffic as a board-side result. */
+#define DMS_UART_PORT UART_NUM_1
+#define DMS_UART_RX_PIN 17
+#define DMS_UART_TX_PIN 18
+#define DMS_UART_BAUD_RATE 115200
+#define DMS_UART_RX_BUFFER_SIZE 1024U
+#define DMS_UART_FRAME_TIMEOUT_MS 1000U
+#define DMS_MODEL_RESULT_TIMEOUT_MS 1500U
 
-// ── MAX98357 I2S 音频 ──
-#define I2S_BCLK_PIN    14
-#define I2S_LRC_PIN     4
-#define I2S_DIN_PIN     5
-#define I2S_SD_PIN      6
+/* USER ACTION REQUIRED: validate these peripheral pins on the actual S3 board. */
+#define I2S_BCLK_PIN 14
+#define I2S_LRC_PIN 4
+#define I2S_DIN_PIN 5
+#define I2S_SD_PIN 6
+#define IR_LED_PIN 7
+#define STATUS_LED_PIN 48
 
-// ── 红外 LED ──
-#define IR_LED_PIN      7
-#define STATUS_LED_PIN  48
+#define BLINK_MICRO_SLEEP_MS 500U
+#define BLINK_DEEP_SLEEP_MS 1500U
+#define YAWN_DURATION_MS 2500U
+#define YAWN_RECOVERY_MS 1000U
+#define PERCLOS_WINDOW_MS 60000U
+#define PERCLOS_MIN_VALID_OBSERVATION_MS 10000U
+#define PERCLOS_ALERT_RATIO 0.40f
+#define PERCLOS_MAX_OBSERVATION_GAP_MS 1000U
+#define DMS_PERCLOS_MAX_INTERVALS 128U
+#define ALERT_COOLDOWN_MS 4000U
 
-// ── WiFi / MQTT ──
-#define WIFI_SSID       "your_wifi"
-#define WIFI_PASSWORD   "your_password"
-#define MQTT_BROKER_URL "mqtt://59.79.0.156"
-#define MQTT_TOPIC      "dms/car/data"
+#define CLASSIFIER_FACE_VALID_THRESHOLD 0.70f
+#define CLASSIFIER_EYE_CLOSED_START_THRESHOLD 0.70f
+#define CLASSIFIER_EYE_CLOSED_RECOVER_THRESHOLD 0.35f
+#define CLASSIFIER_YAWN_START_THRESHOLD 0.70f
+#define CLASSIFIER_YAWN_RECOVER_THRESHOLD 0.35f
 
-// ── 疲劳阈值 ──
-#define EAR_THRESHOLD         0.18f
-#define MAR_THRESHOLD         0.60f
-#define BLINK_MICRO_SLEEP_MS  500
-#define BLINK_DEEP_SLEEP_MS   1500
-#define YAWN_DURATION_MS      2500
-#define COOLDOWN_MS           4000
+#define TEST_MODE_UART_RAW_LINK 1
+#define TEST_MODE_UART_PROTOCOL 2
+#define TEST_MODE_I2S 3
+#define TEST_MODE_IR_LED 4
+#define TEST_MODE_WIFI_MQTT 5
+#define TEST_MODE_FULL_PROTOCOL_STATE_MACHINE 6
+#define TEST_MODE TEST_MODE_UART_PROTOCOL
 
-// ── 测试模式 ──
-// 0=全功能 1=UART收+串口打印 2=I2S音频 3=IR LED 4=WiFi+MQTT 5=综合
-#define TEST_MODE  1
-
+#if defined(__has_include)
+#if __has_include("dms_secrets.h")
+#include "dms_secrets.h"
 #endif
+#endif
+
+#ifndef DMS_WIFI_SSID
+#define DMS_WIFI_SSID "YOUR_WIFI_SSID"
+#endif
+#ifndef DMS_WIFI_PASSWORD
+#define DMS_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#endif
+#ifndef DMS_MQTT_BROKER_URL
+#define DMS_MQTT_BROKER_URL "mqtt://YOUR_MQTT_BROKER"
+#endif
+#ifndef DMS_MQTT_TOPIC
+#define DMS_MQTT_TOPIC "dms/car/data"
+#endif
+
+#endif /* DMS_S3_CONFIG_H */

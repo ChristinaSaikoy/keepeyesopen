@@ -15,6 +15,15 @@ esp32_firmware/sdkconfig.old
 esp32_firmware/*.bin
 esp32_firmware/*.elf
 esp32_firmware/*.map
+esp32_firmware/esp32_cam_fw/build/
+esp32_firmware/esp32_cam_fw/managed_components/
+esp32_firmware/esp32_cam_fw/sdkconfig
+esp32_firmware/esp32_cam_fw/sdkconfig.old
+esp32_firmware/esp32_s3_fw/build/
+esp32_firmware/esp32_s3_fw/managed_components/
+esp32_firmware/esp32_s3_fw/sdkconfig
+esp32_firmware/esp32_s3_fw/sdkconfig.old
+esp32_firmware/esp32_s3_fw/main/dms_secrets.h
 
 # IDE
 .vscode/
