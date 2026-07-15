@@ -147,7 +147,7 @@ static void network_event_handler(void *argument, esp_event_base_t event_base, i
         (void)esp_wifi_connect();
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         xEventGroupSetBits(network_events, WIFI_CONNECTED_BIT);
-    } else if (event_base == MQTT_EVENTS && event_id == MQTT_EVENT_CONNECTED) {
+    } else if (event_id == MQTT_EVENT_CONNECTED) {
         xEventGroupSetBits(network_events, MQTT_CONNECTED_BIT);
     }
 }
@@ -166,7 +166,7 @@ static void test_wifi_mqtt(void)
         return;
     }
     const wifi_init_config_t wifi_init = WIFI_INIT_CONFIG_DEFAULT();
-    const wifi_config_t wifi_config = {.sta = {.ssid = DMS_WIFI_SSID, .password = DMS_WIFI_PASSWORD}};
+    wifi_config_t wifi_config = {.sta = {.ssid = DMS_WIFI_SSID, .password = DMS_WIFI_PASSWORD}};
     if (esp_wifi_init(&wifi_init) != ESP_OK ||
         esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, network_event_handler, NULL) != ESP_OK ||
         esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, network_event_handler, NULL) != ESP_OK ||
