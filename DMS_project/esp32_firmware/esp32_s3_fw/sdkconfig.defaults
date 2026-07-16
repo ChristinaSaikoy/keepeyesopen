@@ -3,8 +3,9 @@ CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
-# Keep executable IRAM headroom for the decision firmware. Wi-Fi/PHY routines
-# fall back to flash execution; throughput and reconnect behavior need board tests.
+# Favor a smaller image. These settings do not resolve the separate IRAM
+# 16383/16384-byte release blocker; Wi-Fi throughput and reconnect behavior
+# must be tested on the real board.
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
 # CONFIG_ESP_WIFI_IRAM_OPT is not set
