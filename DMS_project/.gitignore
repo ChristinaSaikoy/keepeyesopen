@@ -8,6 +8,7 @@ venv/
 # 环境变量（含密钥！绝对不能提交）
 .env
 *.env
+**/dms_secrets.h
 
 # ESP-IDF
 **/build/
@@ -30,6 +31,7 @@ venv/
 
 # 大模型文件
 *.task
+*.zip
 
 # OS
 .DS_Store

@@ -1,152 +1,60 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
+<!doctype html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>DMS 驾驶员监测系统 · 不闭眼战车队</title>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:linear-gradient(135deg,#0a0f1a,#0d1525);color:#e0e6ed;font-family:'Segoe UI','PingFang SC',sans-serif;min-height:100vh;padding:20px}
-.header{text-align:center;padding:18px 0;border-bottom:1px solid rgba(88,166,255,0.2);margin-bottom:24px}
-.header h1{font-size:30px;font-weight:700;background:linear-gradient(90deg,#58a6ff,#3fb950);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:3px}
-.header .sub{font-size:13px;color:#6e7681;margin-top:6px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:1400px;margin:0 auto}
-.card{background:rgba(22,27,34,0.8);backdrop-filter:blur(10px);border:1px solid rgba(48,54,61,0.5);border-radius:12px;padding:24px}
-.card h2{font-size:16px;color:#8b949e;margin-bottom:16px;font-weight:500;letter-spacing:1px}
-.metrics{display:flex;gap:20px;margin-bottom:20px}
-.metric{flex:1;text-align:center;padding:16px;background:rgba(0,0,0,0.3);border-radius:10px;border:1px solid rgba(255,255,255,0.06)}
-.metric .val{font-size:42px;font-weight:700;font-variant-numeric:tabular-nums}
-.metric .lbl{font-size:12px;color:#6e7681;margin-top:4px;letter-spacing:2px}
-.ear{color:#58a6ff}.mar{color:#ffa23e}
-.badge{padding:10px 24px;border-radius:24px;font-weight:600;font-size:15px;text-align:center;letter-spacing:1px}
-.safe{background:rgba(35,134,54,0.2);border:1px solid rgba(35,134,54,0.5);color:#3fb950}
-.warn{background:rgba(210,153,34,0.2);border:1px solid rgba(210,153,34,0.5);color:#d29922}
-.danger{background:rgba(218,54,51,0.25);border:1px solid rgba(218,54,51,0.6);color:#f85149;animation:pulse 0.8s infinite}
-.disconnected{background:rgba(110,118,129,0.15);border:1px solid rgba(110,118,129,0.3);color:#6e7681}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
-.dot-on{background:#3fb950;box-shadow:0 0 8px rgba(63,185,80,0.6)}
-.dot-off{background:#f85149;box-shadow:0 0 8px rgba(248,81,73,0.6)}
-.level-bar{display:flex;align-items:center;gap:12px;margin-top:12px}
-.level-steps{display:flex;gap:4px;flex:1}
-.step{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,0.08)}
-.step.on{background:rgba(248,81,73,0.8)}
-.step.warn{background:rgba(210,153,34,0.8)}
-#chart{width:100%;height:320px}
-.log{max-height:200px;overflow-y:auto;font-size:12px;font-family:'Cascadia Code',monospace;background:rgba(0,0,0,0.3);border-radius:8px;padding:10px}
-.log p{margin:4px 0;padding:4px 8px;border-left:3px solid #30363d;color:#8b949e}
-.log p.alarm{border-left-color:#f85149;color:#ff7b72;background:rgba(248,81,73,0.08)}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.6}}
-.footer{text-align:center;margin-top:24px;font-size:11px;color:#30363d;letter-spacing:2px}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DMS Dashboard</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #101820; color: #edf2f7; }
+    main { max-width: 960px; margin: 0 auto; padding: 24px; }
+    header { border-bottom: 1px solid #40505e; padding-bottom: 16px; }
+    h1 { margin: 0; font-size: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+    section { background: #17232e; border: 1px solid #40505e; border-radius: 6px; padding: 16px; }
+    .value { font: 700 34px ui-monospace, monospace; }
+    .label { color: #9eb0bf; font-size: 13px; }
+    #advice { min-height: 52px; white-space: pre-wrap; }
+    .danger { color: #ff8f8f; } .ok { color: #8ce0a7; } .waiting { color: #ffd27d; }
+    @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  </style>
 </head>
 <body>
-
-<div class="header">
-  <h1>不闭眼战车 · DMS 驾驶员疲劳监测</h1>
-  <div class="sub">
-    <span id="connDot" class="dot dot-off"></span>
-    <span id="connLabel">等待连接...</span>
-    &nbsp;|&nbsp; 全国大学生物联网设计竞赛 &nbsp;|&nbsp; 乐鑫命题
-  </div>
-</div>
-
-<div class="grid">
-  <!-- 左：图表 + 指标 -->
-  <div class="card">
-    <h2>📊 实时生物特征监测</h2>
-    <div class="metrics">
-      <div class="metric"><div class="val ear" id="earVal">0.25</div><div class="lbl">EAR 眼睛开度</div></div>
-      <div class="metric"><div class="val mar" id="marVal">0.15</div><div class="lbl">MAR 嘴巴开度</div></div>
+  <main>
+    <header>
+      <h1>Driver Monitoring System</h1>
+      <div class="label" id="connection">Connecting to dashboard...</div>
+    </header>
+    <div class="grid">
+      <section><div class="label">EAR (PC observation)</div><div class="value" id="ear">--</div></section>
+      <section><div class="label">MAR (PC observation)</div><div class="value" id="mar">--</div></section>
+      <section><div class="label">S3 fatigue level</div><div class="value" id="level">--</div></section>
+      <section><div class="label">PERCLOS / link status</div><div class="value" id="perclos">--</div><div class="label" id="link">--</div></section>
     </div>
-    <div id="chart"></div>
-    <div class="level-bar">
-      <span style="font-size:11px;color:#6e7681">疲劳等级</span>
-      <div class="level-steps">
-        <div class="step" id="s0"></div><div class="step" id="s1"></div><div class="step" id="s2"></div><div class="step" id="s3"></div><div class="step" id="s4"></div>
-      </div>
-      <span style="font-size:11px;color:#6e7681">Lv.<span id="lvNum">0</span></span>
-    </div>
-  </div>
-
-  <!-- 右：状态 + 日志 -->
-  <div class="card">
-    <h2>🚗 驾驶员状态</h2>
-    <div id="statusBadge" class="badge safe">✅ 驾驶员状态：安全</div>
-    <div style="margin-top:16px;font-size:13px;color:#6e7681" id="statusDesc">正在监测中...</div>
-    <hr style="border-color:rgba(255,255,255,0.05);margin:20px 0">
-    <h2>📋 事件日志</h2>
-    <div class="log" id="logBox"><p>系统就绪，等待数据...</p></div>
-  </div>
-</div>
-
-<div class="footer">不闭眼战车队 © 2026 &nbsp;·&nbsp; 陈俊毅 &nbsp;·&nbsp; 覃晖 &nbsp;·&nbsp; 廖宜乐 &nbsp;·&nbsp; 王宏博</div>
-
-<script>
-const chart=echarts.init(document.getElementById('chart'),'dark');
-let td=[],ed=[],md=[];
-const opt={
-  backgroundColor:'transparent',
-  tooltip:{trigger:'axis'},
-  grid:{top:10,right:20,bottom:20,left:40},
-  legend:{data:['EAR','MAR'],textStyle:{color:'#8b949e',fontSize:11},top:0},
-  xAxis:{type:'category',data:td,axisLine:{lineStyle:{color:'#30363d'}},axisLabel:{color:'#6e7681',fontSize:10}},
-  yAxis:{type:'value',min:0,max:1,splitLine:{lineStyle:{color:'rgba(255,255,255,0.04)'}},axisLabel:{color:'#6e7681',fontSize:10}},
-  series:[
-    {name:'EAR',type:'line',data:ed,smooth:true,symbol:'none',lineStyle:{color:'#58a6ff',width:2},areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(88,166,255,0.15)'},{offset:1,color:'rgba(88,166,255,0)'}])}},
-    {name:'MAR',type:'line',data:md,smooth:true,symbol:'none',lineStyle:{color:'#ffa23e',width:2},areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(255,162,62,0.15)'},{offset:1,color:'rgba(255,162,62,0)'}])}}
-  ]
-};
-chart.setOption(opt);
-
-const WS='ws://127.0.0.1:9001';
-let ws,recon=1000,timer;
-
-function log(msg,c){
-  const p=document.createElement('p');
-  if(c)p.className=c;
-  p.innerText=`[${new Date().toLocaleTimeString()}] ${msg}`;
-  const lb=document.getElementById('logBox');
-  lb.appendChild(p);lb.scrollTop=lb.scrollHeight;
-}
-function conn(s){
-  const d=document.getElementById('connDot'),l=document.getElementById('connLabel');
-  d.className='dot '+s;l.innerText=s==='dot-on'?'已连接':s==='dot-off'?'已断开':'重连中';
-}
-function lvl(n){
-  document.getElementById('lvNum').innerText=n;
-  for(let i=1;i<=5;i++) document.getElementById('s'+(i-1)).className='step'+(i<=n?(n>=3?'on':'warn'):'');
-}
-
-function go(){
-  ws=new WebSocket(WS);
-  conn('dot-off');
-  ws.onopen=()=>{conn('dot-on');recon=1000;log('已连接','')};
-  ws.onmessage=e=>{
-    const d=JSON.parse(e.data);
-    const t=new Date().toLocaleTimeString();
-    td.push(t);ed.push(d.ear);md.push(d.mar);
-    if(td.length>40){td.shift();ed.shift();md.shift();}
-    chart.setOption({xAxis:{data:td},series:[{data:ed},{data:md}]});
-    document.getElementById('earVal').innerText=d.ear.toFixed(2);
-    document.getElementById('marVal').innerText=d.mar.toFixed(2);
-    const b=document.getElementById('statusBadge'),ds=document.getElementById('statusDesc');
-    lvl(d.level);
-    if(d.level>=2){
-      b.className='badge danger';b.innerText='🚨 警告：检测到疲劳！';
-      ds.innerText=d.ai_text||'';
-      if(d.ai_text) log(d.ai_text,'alarm');
-    }else if(d.level===1){
-      b.className='badge warn';b.innerText='⚠️ 持续监测中...';
-      ds.innerText='';
-    }else{
-      b.className='badge safe';b.innerText='✅ 驾驶员状态：安全';
-      ds.innerText='正在监测中...';
+    <section style="margin-top:12px">
+      <div class="label">AI advice (non-safety-critical)</div>
+      <div id="advice">No advice received.</div>
+    </section>
+  </main>
+  <script>
+    const byId = (id) => document.getElementById(id);
+    function number(value, digits = 2) { return Number.isFinite(value) ? value.toFixed(digits) : "--"; }
+    function connect() {
+      const socket = new WebSocket("ws://127.0.0.1:9001");
+      socket.onopen = () => { byId("connection").textContent = "Dashboard connected"; byId("connection").className = "label ok"; };
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        byId("ear").textContent = number(data.ear);
+        byId("mar").textContent = number(data.mar);
+        byId("level").textContent = Number.isInteger(data.level) ? data.level : "--";
+        byId("level").className = "value " + (data.level >= 2 ? "danger" : "ok");
+        byId("perclos").textContent = number(data.perclos, 3);
+        byId("link").textContent = data.link_status || "waiting";
+        byId("advice").textContent = data.ai_advice || "No advice received.";
+      };
+      socket.onclose = () => { byId("connection").textContent = "Dashboard disconnected; retrying"; byId("connection").className = "label waiting"; setTimeout(connect, 1000); };
     }
-  };
-  ws.onclose=e=>{conn('dot-off');log(`断开 (${e.code})，${(recon/1000)|0}s重连`,'');recon=Math.min(recon*2,30000);timer=setTimeout(go,recon)};
-  ws.onerror=()=>{};
-}
-go();
-</script>
+    connect();
+  </script>
 </body>
 </html>

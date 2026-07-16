@@ -1,14 +1,27 @@
 {
-  "team_id": "bbyzc_01",
-  "device_id": "esp32s3_dms_01",
-  "timestamp": 1716888888,
-  "metrics": {
-    "ear": 0.28,
-    "mar": 0.15
+  "schema_version": 1,
+  "contract": "vision_observation",
+  "topic": "dms/{device_id}/vision/observation",
+  "required_fields": {
+    "schema_version": "integer, exactly 1",
+    "device_id": "non-empty ASCII [A-Za-z0-9_-], maximum 48 bytes",
+    "sequence": "uint32",
+    "source_timestamp_ms": "uint32 epoch milliseconds",
+    "face_valid": "boolean",
+    "ear": "finite number in [0, 1.5]",
+    "mar": "finite number in [0, 3.0]",
+    "head_pitch": "finite number in [-90, 90]",
+    "processing_time_ms": "finite number in [0, 10000]"
   },
-  "status": {
-    "is_blink": false,
-    "is_yawn": false,
-    "alarm_level": 0
+  "example": {
+    "schema_version": 1,
+    "device_id": "pc_dms_001",
+    "sequence": 42,
+    "source_timestamp_ms": 1716888888,
+    "face_valid": true,
+    "ear": 0.28,
+    "mar": 0.15,
+    "head_pitch": -2.5,
+    "processing_time_ms": 31.4
   }
 }

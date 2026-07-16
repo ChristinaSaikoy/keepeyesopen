@@ -1,83 +1,163 @@
-/**
- * ESP32-CAM —— 只做一件事：拍照 → MQTT 发 JPEG
- * 全部算法在 PC 端跑
- */
+/* ESP32-CAM: low-latency LAN MJPEG producer. MQTT is not used for JPEG data. */
 #include <stdio.h>
 #include <string.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/event_groups.h"
-#include "driver/gpio.h"
+
 #include "esp_camera.h"
-#include "esp_log.h"
-#include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_http_server.h"
+#include "esp_log.h"
+#include "esp_netif.h"
+#include "esp_timer.h"
+#include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+#include "freertos/task.h"
 #include "nvs_flash.h"
-#include "mqtt_client.h"
+
 #include "config.h"
 
-static const char *TAG = "CAM";
-static esp_mqtt_client_handle_t mq = NULL;
+static const char *TAG = "DMS_CAM";
+static EventGroupHandle_t wifi_events;
+static constexpr EventBits_t WIFI_CONNECTED_BIT = BIT0;
 
-static camera_config_t cam_cfg = {
-    .pin_pwdn=CAM_PIN_PWDN,.pin_reset=CAM_PIN_RESET,.pin_xclk=CAM_PIN_XCLK,
-    .pin_sccb_sda=CAM_PIN_SIOD,.pin_sccb_scl=CAM_PIN_SIOC,
-    .pin_d7=CAM_PIN_D7,.pin_d6=CAM_PIN_D6,.pin_d5=CAM_PIN_D5,.pin_d4=CAM_PIN_D4,
-    .pin_d3=CAM_PIN_D3,.pin_d2=CAM_PIN_D2,.pin_d1=CAM_PIN_D1,.pin_d0=CAM_PIN_D0,
-    .pin_vsync=CAM_PIN_VSYNC,.pin_href=CAM_PIN_HREF,.pin_pclk=CAM_PIN_PCLK,
-    .xclk_freq_hz=20000000,.ledc_timer=LEDC_TIMER_0,.ledc_channel=LEDC_CHANNEL_0,
-    .pixel_format=PIXFORMAT_JPEG,.frame_size=FRAMESIZE_VGA,
-    .jpeg_quality=8,.fb_count=1,.grab_mode=CAMERA_GRAB_WHEN_EMPTY,
-};
-
-static EventGroupHandle_t evt, mqtt_evt;
-static void wf_cb(void*a,esp_event_base_t b,int32_t id,void*d){
-    if(b==WIFI_EVENT&&id==WIFI_EVENT_STA_START) esp_wifi_connect();
-    else if(b==IP_EVENT&&id==IP_EVENT_STA_GOT_IP){
-        ip_event_got_ip_t*ip=(ip_event_got_ip_t*)d;
-        ESP_LOGI(TAG,"WiFi:"IPSTR,IP2STR(&ip->ip_info.ip)); xEventGroupSetBits(evt,1);
-    }
-}
-static void mq_ok(void*a,esp_event_base_t b,int32_t id,void*d){
-    ESP_LOGI(TAG,"MQTT OK");
-    xEventGroupSetBits(mqtt_evt, 1);
+static bool is_placeholder(const char *value)
+{
+    return value == NULL || strstr(value, "YOUR_") != NULL;
 }
 
-extern "C" void app_main(void){
-    ESP_LOGI(TAG,"=== CAM Edge Capture ===");
-    if(esp_camera_init(&cam_cfg)!=ESP_OK){ESP_LOGE(TAG,"CAM FAIL");while(1)vTaskDelay(1000);}
-    sensor_t *s=esp_camera_sensor_get(); s->set_vflip(s,1);
-    ESP_LOGI(TAG,"OV2640 OK PID=0x%02X",s->id.PID);
-
-    // 不闪灯——驾驶安全
-    nvs_flash_init();esp_netif_init();esp_event_loop_create_default();esp_netif_create_default_wifi_sta();
-    wifi_init_config_t wc=WIFI_INIT_CONFIG_DEFAULT();esp_wifi_init(&wc);
-    esp_event_handler_instance_register(WIFI_EVENT,WIFI_EVENT_STA_START,wf_cb,NULL,NULL);
-    evt=xEventGroupCreate();
-    esp_event_handler_instance_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wf_cb,NULL,NULL);
-    wifi_config_t w={.sta={.ssid=WIFI_SSID,.password=WIFI_PASSWORD}};
-    esp_wifi_set_mode(WIFI_MODE_STA);esp_wifi_set_config(WIFI_IF_STA,&w);esp_wifi_start();
-    xEventGroupWaitBits(evt,1,pdTRUE,pdTRUE,20000);
-
-    esp_mqtt_client_config_t mc = {};
-    mc.broker.address.uri = MQTT_BROKER_URL;
-    mq=esp_mqtt_client_init(&mc);
-    mqtt_evt = xEventGroupCreate();
-    esp_mqtt_client_register_event(mq,MQTT_EVENT_CONNECTED,mq_ok,NULL);
-    esp_mqtt_client_start(mq);
-    ESP_LOGI(TAG,"Waiting MQTT...");
-    xEventGroupWaitBits(mqtt_evt, 1, pdTRUE, pdTRUE, 15000);
-
-    ESP_LOGI(TAG,"Capturing...");
-    uint32_t fn=0;
-    while(1){
-        camera_fb_t *fb=esp_camera_fb_get();
-        if(!fb){vTaskDelay(10);continue;}
-        fn++;
-        /* 只发 JPEG 到 MQTT，不做任何处理 */
-        esp_mqtt_client_publish(mq,"dms/cam/img",(char*)fb->buf,fb->len,0,0);
-        if(fn%25==0) ESP_LOGI(TAG,"#%lu %zuB",fn,fb->len);
-        esp_camera_fb_return(fb);
-        vTaskDelay(pdMS_TO_TICKS(300));
+static void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id, void *event_data)
+{
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        (void)esp_wifi_connect();
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        const ip_event_got_ip_t *event = static_cast<const ip_event_got_ip_t *>(event_data);
+        ESP_LOGI(TAG, "Wi-Fi connected: " IPSTR, IP2STR(&event->ip_info.ip));
+        xEventGroupSetBits(wifi_events, WIFI_CONNECTED_BIT);
     }
+}
+
+static esp_err_t health_handler(httpd_req_t *request)
+{
+    httpd_resp_set_type(request, "application/json");
+    return httpd_resp_sendstr(request, "{\"status\":\"ok\",\"stream\":\"/stream\"}");
+}
+
+static esp_err_t stream_handler(httpd_req_t *request)
+{
+    static const char *CONTENT_TYPE = "multipart/x-mixed-replace;boundary=dmsframe";
+    httpd_resp_set_type(request, CONTENT_TYPE);
+    httpd_resp_set_hdr(request, "Access-Control-Allow-Origin", "*");
+    while (true) {
+        camera_fb_t *frame = esp_camera_fb_get();
+        if (frame == NULL) {
+            ESP_LOGW(TAG, "camera frame unavailable");
+            vTaskDelay(pdMS_TO_TICKS(10U));
+            continue;
+        }
+        const uint32_t capture_ms = (uint32_t)(esp_timer_get_time() / 1000LL);
+        char header[160];
+        const int header_length = snprintf(header, sizeof(header),
+                                           "--dmsframe\r\nContent-Type: image/jpeg\r\n"
+                                           "Content-Length: %u\r\nX-Capture-Timestamp-Ms: %lu\r\n\r\n",
+                                           (unsigned)frame->len, (unsigned long)capture_ms);
+        esp_err_t result = httpd_resp_send_chunk(request, header, header_length);
+        if (result == ESP_OK) {
+            result = httpd_resp_send_chunk(request, reinterpret_cast<const char *>(frame->buf), frame->len);
+        }
+        if (result == ESP_OK) {
+            result = httpd_resp_send_chunk(request, "\r\n", 2);
+        }
+        esp_camera_fb_return(frame);
+        if (result != ESP_OK) {
+            ESP_LOGI(TAG, "MJPEG client disconnected: %s", esp_err_to_name(result));
+            return result;
+        }
+        if (DMS_CAM_FRAME_INTERVAL_MS > 0U) {
+            vTaskDelay(pdMS_TO_TICKS(DMS_CAM_FRAME_INTERVAL_MS));
+        }
+    }
+}
+
+static void start_http_server(void)
+{
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = DMS_CAM_STREAM_PORT;
+    config.ctrl_port = (uint16_t)(DMS_CAM_STREAM_PORT + 1U);
+    config.max_uri_handlers = 2U;
+    httpd_handle_t server = NULL;
+    if (httpd_start(&server, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "HTTP server start failed");
+        return;
+    }
+    const httpd_uri_t health = {.uri = "/health", .method = HTTP_GET, .handler = health_handler, .user_ctx = NULL};
+    const httpd_uri_t stream = {.uri = "/stream", .method = HTTP_GET, .handler = stream_handler, .user_ctx = NULL};
+    (void)httpd_register_uri_handler(server, &health);
+    (void)httpd_register_uri_handler(server, &stream);
+    ESP_LOGI(TAG, "MJPEG ready: http://<cam-ip>:%u/stream (%ux%u)", DMS_CAM_STREAM_PORT,
+             DMS_CAM_FRAME_WIDTH, DMS_CAM_FRAME_HEIGHT);
+}
+
+extern "C" void app_main(void)
+{
+    if (is_placeholder(DMS_WIFI_SSID) || is_placeholder(DMS_WIFI_PASSWORD)) {
+        ESP_LOGE(TAG, "Wi-Fi is not configured; create ignored dms_secrets.h from the example");
+        return;
+    }
+
+    const camera_config_t camera_config = {
+        .pin_pwdn = CAM_PIN_PWDN,
+        .pin_reset = CAM_PIN_RESET,
+        .pin_xclk = CAM_PIN_XCLK,
+        .pin_sccb_sda = CAM_PIN_SIOD,
+        .pin_sccb_scl = CAM_PIN_SIOC,
+        .pin_d7 = CAM_PIN_D7,
+        .pin_d6 = CAM_PIN_D6,
+        .pin_d5 = CAM_PIN_D5,
+        .pin_d4 = CAM_PIN_D4,
+        .pin_d3 = CAM_PIN_D3,
+        .pin_d2 = CAM_PIN_D2,
+        .pin_d1 = CAM_PIN_D1,
+        .pin_d0 = CAM_PIN_D0,
+        .pin_vsync = CAM_PIN_VSYNC,
+        .pin_href = CAM_PIN_HREF,
+        .pin_pclk = CAM_PIN_PCLK,
+        .xclk_freq_hz = 20000000,
+        .ledc_timer = LEDC_TIMER_0,
+        .ledc_channel = LEDC_CHANNEL_0,
+        .pixel_format = PIXFORMAT_JPEG,
+        .frame_size = DMS_CAM_FRAME_SIZE,
+        .jpeg_quality = DMS_CAM_JPEG_QUALITY,
+        .fb_count = DMS_CAM_FRAMEBUFFER_COUNT,
+        .grab_mode = CAMERA_GRAB_LATEST,
+        .fb_location = CAMERA_FB_IN_PSRAM,
+    };
+    if (esp_camera_init(&camera_config) != ESP_OK) {
+        ESP_LOGE(TAG, "camera initialization failed; verify board profile, GPIOs, sensor, and PSRAM");
+        return;
+    }
+    const sensor_t *sensor = esp_camera_sensor_get();
+    ESP_LOGI(TAG, "camera initialized, PID=0x%04X", sensor == NULL ? 0U : sensor->id.PID);
+
+    wifi_events = xEventGroupCreate();
+    if (wifi_events == NULL || nvs_flash_init() != ESP_OK || esp_netif_init() != ESP_OK ||
+        esp_event_loop_create_default() != ESP_OK || esp_netif_create_default_wifi_sta() == NULL) {
+        ESP_LOGE(TAG, "network initialization failed");
+        return;
+    }
+    const wifi_init_config_t wifi_init = WIFI_INIT_CONFIG_DEFAULT();
+    wifi_config_t wifi_config = {.sta = {.ssid = DMS_WIFI_SSID, .password = DMS_WIFI_PASSWORD}};
+    if (esp_wifi_init(&wifi_init) != ESP_OK ||
+        esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL) != ESP_OK ||
+        esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL) != ESP_OK ||
+        esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK || esp_wifi_set_config(WIFI_IF_STA, &wifi_config) != ESP_OK ||
+        esp_wifi_start() != ESP_OK) {
+        ESP_LOGE(TAG, "Wi-Fi start failed");
+        return;
+    }
+    if ((xEventGroupWaitBits(wifi_events, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(20000U)) &
+         WIFI_CONNECTED_BIT) == 0U) {
+        ESP_LOGE(TAG, "Wi-Fi connection timed out");
+        return;
+    }
+    start_http_server();
 }
