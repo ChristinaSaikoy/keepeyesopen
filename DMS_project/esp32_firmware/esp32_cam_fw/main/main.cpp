@@ -104,33 +104,32 @@ extern "C" void app_main(void)
         return;
     }
 
-    const camera_config_t camera_config = {
-        .pin_pwdn = CAM_PIN_PWDN,
-        .pin_reset = CAM_PIN_RESET,
-        .pin_xclk = CAM_PIN_XCLK,
-        .pin_sccb_sda = CAM_PIN_SIOD,
-        .pin_sccb_scl = CAM_PIN_SIOC,
-        .pin_d7 = CAM_PIN_D7,
-        .pin_d6 = CAM_PIN_D6,
-        .pin_d5 = CAM_PIN_D5,
-        .pin_d4 = CAM_PIN_D4,
-        .pin_d3 = CAM_PIN_D3,
-        .pin_d2 = CAM_PIN_D2,
-        .pin_d1 = CAM_PIN_D1,
-        .pin_d0 = CAM_PIN_D0,
-        .pin_vsync = CAM_PIN_VSYNC,
-        .pin_href = CAM_PIN_HREF,
-        .pin_pclk = CAM_PIN_PCLK,
-        .xclk_freq_hz = 20000000,
-        .ledc_timer = LEDC_TIMER_0,
-        .ledc_channel = LEDC_CHANNEL_0,
-        .pixel_format = PIXFORMAT_JPEG,
-        .frame_size = DMS_CAM_FRAME_SIZE,
-        .jpeg_quality = DMS_CAM_JPEG_QUALITY,
-        .fb_count = DMS_CAM_FRAMEBUFFER_COUNT,
-        .grab_mode = CAMERA_GRAB_LATEST,
-        .fb_location = CAMERA_FB_IN_PSRAM,
-    };
+    camera_config_t camera_config = {};
+    camera_config.pin_pwdn = CAM_PIN_PWDN;
+    camera_config.pin_reset = CAM_PIN_RESET;
+    camera_config.pin_xclk = CAM_PIN_XCLK;
+    camera_config.pin_sccb_sda = CAM_PIN_SIOD;
+    camera_config.pin_sccb_scl = CAM_PIN_SIOC;
+    camera_config.pin_d7 = CAM_PIN_D7;
+    camera_config.pin_d6 = CAM_PIN_D6;
+    camera_config.pin_d5 = CAM_PIN_D5;
+    camera_config.pin_d4 = CAM_PIN_D4;
+    camera_config.pin_d3 = CAM_PIN_D3;
+    camera_config.pin_d2 = CAM_PIN_D2;
+    camera_config.pin_d1 = CAM_PIN_D1;
+    camera_config.pin_d0 = CAM_PIN_D0;
+    camera_config.pin_vsync = CAM_PIN_VSYNC;
+    camera_config.pin_href = CAM_PIN_HREF;
+    camera_config.pin_pclk = CAM_PIN_PCLK;
+    camera_config.xclk_freq_hz = 20000000;
+    camera_config.ledc_timer = LEDC_TIMER_0;
+    camera_config.ledc_channel = LEDC_CHANNEL_0;
+    camera_config.pixel_format = PIXFORMAT_JPEG;
+    camera_config.frame_size = DMS_CAM_FRAME_SIZE;
+    camera_config.jpeg_quality = DMS_CAM_JPEG_QUALITY;
+    camera_config.fb_count = DMS_CAM_FRAMEBUFFER_COUNT;
+    camera_config.fb_location = CAMERA_FB_IN_PSRAM;
+    camera_config.grab_mode = CAMERA_GRAB_LATEST;
     if (esp_camera_init(&camera_config) != ESP_OK) {
         ESP_LOGE(TAG, "camera initialization failed; verify board profile, GPIOs, sensor, and PSRAM");
         return;
@@ -145,7 +144,9 @@ extern "C" void app_main(void)
         return;
     }
     const wifi_init_config_t wifi_init = WIFI_INIT_CONFIG_DEFAULT();
-    wifi_config_t wifi_config = {.sta = {.ssid = DMS_WIFI_SSID, .password = DMS_WIFI_PASSWORD}};
+    wifi_config_t wifi_config = {};
+    (void)snprintf(reinterpret_cast<char *>(wifi_config.sta.ssid), sizeof(wifi_config.sta.ssid), "%s", DMS_WIFI_SSID);
+    (void)snprintf(reinterpret_cast<char *>(wifi_config.sta.password), sizeof(wifi_config.sta.password), "%s", DMS_WIFI_PASSWORD);
     if (esp_wifi_init(&wifi_init) != ESP_OK ||
         esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL) != ESP_OK ||
         esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL) != ESP_OK ||
