@@ -33,8 +33,26 @@ def test_pc_and_cloud_do_not_replace_s3_decision_authority():
     assert "write_gpio" not in cloud
 
 
+def test_current_docs_and_cam_security_boundaries():
+    readme = read("README.md")
+    s3_iram = read("docs/s3_iram_root_cause.md")
+    cam = read("esp32_firmware/esp32_cam_fw/main/main.cpp")
+    ignored = (ROOT.parent / ".gitignore").read_text(encoding="utf-8")
+    cloud = read("cloud_backend/web_backend.py")
+
+    correction = "Superseded by G5: 16383/16384 is an ESP-IDF size category, not the actual iram0_0_seg capacity."
+    assert correction in readme and correction in s3_iram
+    assert "S3 IRAM remains `16383 / 16384`" not in readme
+    assert "esp_mqtt" not in cam and "mqtt_client" not in cam
+    assert "YOUR_WIFI_SSID" in read("esp32_firmware/esp32_cam_fw/main/dms_secrets.h.example")
+    assert "esp32_cam_fw/main/dms_secrets.h" in ignored
+    assert "esp32_s3_fw/main/dms_secrets.h" in ignored
+    assert "image/jpeg" not in cloud and "write_gpio" not in cloud
+
+
 if __name__ == "__main__":
     test_no_application_iram_placement_or_uart_reintroduction()
     test_s3_audio_and_command_safety_boundaries_remain()
     test_pc_and_cloud_do_not_replace_s3_decision_authority()
+    test_current_docs_and_cam_security_boundaries()
     print("static_safety_gate: PASS")

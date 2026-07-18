@@ -39,6 +39,15 @@ The only cloud command currently accepted is `set_status_led` on `dms/{s3_id}/co
 
 Host tests cover the decision-state transitions, PERCLOS window, observation ordering, stale input, cooldown separation, schema validation, LLM timeout fallback and command whitelist. Firmware builds are source-level checks only. They do not verify a board, camera pin map, PSRAM, UART, audio hardware, Wi-Fi/MQTT link, image quality or measured performance.
 
+## Current Resource Status
+
+Superseded by G5: 16383/16384 is an ESP-IDF size category, not the actual iram0_0_seg capacity.
+
+- S3 linker IRAM budget: pass. The G5 linker-map analysis found about 308 KiB free in the actual S3 `iram0_0_seg` region.
+- S3 Wi-Fi/MQTT/I2S runtime: board verification pending.
+- CAM IRAM/partition: current resource risk. The current 1 MiB application layout does not meet the release headroom target; see `docs/cam_memory_root_cause.md` and `docs/cam_partition_candidates.md`.
+- Board inventory: `UNKNOWN`. No final CAM partition is selected until the actual module, Flash and PSRAM are recorded.
+
 ## ESP-WHO status
 
 ESP-WHO is not part of this architecture. The prior source review found no supported ESP-WHO dlib-68 landmark contract for the intended ESP32-S3 route. PC MediaPipe supplies the visual observation while the S3 remains the fatigue decision authority.

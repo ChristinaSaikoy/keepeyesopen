@@ -1,5 +1,7 @@
 # ESP32-S3 IRAM Root Cause
 
+Superseded by G5: 16383/16384 is an ESP-IDF size category, not the actual iram0_0_seg capacity.
+
 ## Scope and evidence
 
 This analysis uses ESP-IDF v5.3.5 and a clean build of G4 commit

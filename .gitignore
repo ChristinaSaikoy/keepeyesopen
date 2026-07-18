@@ -58,6 +58,11 @@ compile_commands.json
 *.bak
 *.swp
 
+# Local credentials are intentionally never tracked.
+.env
+DMS_project/esp32_firmware/esp32_cam_fw/main/dms_secrets.h
+DMS_project/esp32_firmware/esp32_s3_fw/main/dms_secrets.h
+
 # vcpkg
 vcpkg_installed/
 
