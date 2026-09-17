@@ -1,0 +1,37 @@
+name: Embedded Algorithm CI
+
+on:
+  push:
+    paths:
+      - "DMS_project/esp32_firmware/esp32_s3_fw/main/ear_mar.*"
+      - "DMS_project/esp32_firmware/esp32_s3_fw/main/perclos.*"
+      - "DMS_project/esp32_firmware/esp32_s3_fw/main/config.h"
+      - "tests/**"
+      - ".github/workflows/algorithm-ci.yml"
+  pull_request:
+    paths:
+      - "DMS_project/esp32_firmware/esp32_s3_fw/main/ear_mar.*"
+      - "DMS_project/esp32_firmware/esp32_s3_fw/main/perclos.*"
+      - "DMS_project/esp32_firmware/esp32_s3_fw/main/config.h"
+      - "tests/**"
+      - ".github/workflows/algorithm-ci.yml"
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build host-side algorithm tests
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -I DMS_project/esp32_firmware/esp32_s3_fw/main \
+            tests/test_algorithms.c \
+            DMS_project/esp32_firmware/esp32_s3_fw/main/ear_mar.c \
+            DMS_project/esp32_firmware/esp32_s3_fw/main/perclos.c \
+            -lm -o tests/test_algorithms
+
+      - name: Run tests
+        run: ./tests/test_algorithms
