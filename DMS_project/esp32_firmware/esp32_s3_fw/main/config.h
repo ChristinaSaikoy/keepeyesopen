@@ -1,5 +1,5 @@
 /**
- * ESP32-S3 算力板配置 —— UART接收 → EAR/MAR → PERCLOS → I2S音频 + MQTT + IR LED
+ * ESP32-S3 算力板配置 —— UART接收 → EAR/MAR → 状态判定 → I2S音频 + MQTT + IR LED
  */
 #ifndef CONFIG_H
 #define CONFIG_H
@@ -21,12 +21,13 @@
 #define STATUS_LED_PIN  48
 
 // ── WiFi / MQTT ──
+// Public-repository defaults only. Replace locally for deployment.
 #define WIFI_SSID       "your_wifi"
 #define WIFI_PASSWORD   "your_password"
-#define MQTT_BROKER_URL "mqtt://59.79.0.156"
+#define MQTT_BROKER_URL "mqtt://broker.emqx.io"
 #define MQTT_TOPIC      "dms/car/data"
 
-// ── 疲劳阈值 ──
+// ── 疲劳阈值（竞赛原型参数，非安全/医学标准）──
 #define EAR_THRESHOLD         0.18f
 #define MAR_THRESHOLD         0.60f
 #define BLINK_MICRO_SLEEP_MS  500
@@ -35,7 +36,7 @@
 #define COOLDOWN_MS           4000
 
 // ── 测试模式 ──
-// 0=全功能 1=UART收+串口打印 2=I2S音频 3=IR LED 4=WiFi+MQTT 5=综合
+// 0=预留全功能 1=UART收+串口打印 2=I2S音频 3=IR LED 4=WiFi+MQTT 5=综合入口（开发中）
 #define TEST_MODE  1
 
 #endif
