@@ -46,6 +46,7 @@ PC / cloud backend
 | 68-point landmark extraction on camera node | In progress |
 | EAR / MAR geometry in C | Implemented |
 | Eye-closure / yawn duration state machine | Implemented |
+| Host-side tests for embedded algorithm core | Added |
 | ESP32-S3 UART, I2S, IR LED, Wi-Fi and MQTT subsystem tests | Implemented |
 | Fully integrated S3 processing mode | In progress |
 | MQTT -> backend -> WebSocket dashboard path | Implemented in prototype code |
@@ -69,6 +70,8 @@ Other team members worked on the PC prototype, hardware integration, and cloud/b
 
 ```text
 keepeyesopen/
+├── .github/workflows/         # host-side algorithm CI definition
+├── tests/                     # C tests for algorithm core
 └── DMS_project/
     ├── esp32_firmware/
     │   ├── esp32_cam_fw/      # camera node: capture + UART scaffold
@@ -101,6 +104,23 @@ local alert + telemetry
 
 `ear_mar.c` computes eye and mouth ratios from 68-point landmarks. `perclos.c` currently implements **duration-based eye-closure and yawn detection**. Despite the historical filename, it is not yet a full sliding-window PERCLOS-percentage implementation; that distinction is kept explicit here for technical accuracy.
 
+## Verification
+
+The embedded algorithm core can be compiled on a normal Linux host without ESP-IDF:
+
+```bash
+gcc -std=c11 -Wall -Wextra -Werror \
+  -I DMS_project/esp32_firmware/esp32_s3_fw/main \
+  tests/test_algorithms.c \
+  DMS_project/esp32_firmware/esp32_s3_fw/main/ear_mar.c \
+  DMS_project/esp32_firmware/esp32_s3_fw/main/perclos.c \
+  -lm -o tests/test_algorithms
+
+./tests/test_algorithms
+```
+
+The tests cover deterministic EAR/MAR geometry plus eye-closure and yawn state transitions. A GitHub Actions workflow definition is included at `.github/workflows/algorithm-ci.yml` for the same host-side verification path.
+
 ## Hardware / Software Stack
 
 `ESP32-S3` · `ESP-IDF` · `C` · `FreeRTOS` · `UART` · `I2S` · `MQTT` · `Python` · `WebSocket` · `MediaPipe prototype`
@@ -118,7 +138,7 @@ local alert + telemetry
 1. Integrate and validate camera-side facial-landmark extraction.
 2. Freeze a compact UART landmark/event packet format.
 3. Complete the S3 integrated processing loop.
-4. Add host-side unit tests for EAR/MAR and fatigue-state transitions.
+4. Extend host-side tests with boundary cases and malformed landmark inputs.
 5. Record reproducible board-level latency and robustness measurements.
 6. Add an architecture diagram and hardware validation evidence once the full chain is stable.
 
