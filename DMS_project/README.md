@@ -1,158 +1,192 @@
-# 端边云协同的主动式车载DMS哨兵系统
+# 端边云协同车载 DMS 原型
 
 > 全国大学生物联网设计竞赛 · 乐鑫命题  
 > 团队：不闭眼战车队  
-> 成员：陈俊毅（队长/全栈）、覃晖（硬件）、廖宜乐（算法）、王宏博（后端/AI）
+> 当前状态：**原型开发中，部分子系统已实现，完整端到端闭环尚未完成**
 
----
+本项目探索一个分层的 Driver Monitoring System（驾驶员监测系统）原型：摄像头节点负责采集与后续关键点提取，ESP32-S3 负责嵌入式疲劳判定与本地告警，MQTT/PC 后端负责遥测、可视化和可选的 LLM/TTS 交互。
 
-## 📂 项目结构
+## 1. 当前系统结构
 
+```text
+驾驶员 / 摄像头
+      |
+      v
+ESP32 Camera Node
+  摄像头采集
+  UART 发送
+  68点关键点提取 [待集成]
+      |
+      v
+ESP32-S3 Compute Node
+  EAR / MAR 几何计算
+  闭眼 / 哈欠持续时间状态机
+  I2S 本地告警
+  IR / 状态指示
+  Wi-Fi + MQTT
+      |
+      v
+MQTT Broker
+      |
+      v
+PC / Cloud Backend
+  MQTT 接收
+  WebSocket Dashboard
+  DeepSeek 可选生成
+  本地语料 fallback
+  TTS
 ```
+
+## 2. 实现状态
+
+| 模块 | 状态 | 代码位置 |
+|---|---|---|
+| ESP32 Camera 初始化 / 图像采集 | 已实现 | `esp32_firmware/esp32_cam_fw/` |
+| Camera -> S3 UART 链路框架 | 已实现，当前发送占位数据 | `esp32_cam_fw/main/main.c` |
+| Camera 侧 68 点关键点提取 | 待集成 | `esp32_cam_fw/main/main.c` 中 TODO |
+| EAR / MAR 几何算法 | 已实现 | `esp32_s3_fw/main/ear_mar.c` |
+| 闭眼 / 哈欠持续时间判定 | 已实现 | `esp32_s3_fw/main/perclos.c` |
+| UART / I2S / IR / Wi-Fi / MQTT 子系统测试 | 已实现 | `esp32_s3_fw/main/main.c` |
+| S3 全功能综合模式 | 开发中 | `TEST_MODE=5` 当前仍为占位 |
+| PC 端视觉原型 | 已有原型 | `pc_prototype/` |
+| MQTT + WebSocket 后端 | 已实现原型 | `cloud_backend/web_backend.py` |
+| DeepSeek + 本地 fallback + TTS | 已实现原型 | `cloud_backend/web_backend.py` |
+| 完整板级端到端验证 | 待完成 | — |
+
+> 说明：文件名 `perclos.c` 沿用项目早期命名。当前代码实现的是**基于 EAR/MAR 阈值与持续时间的疲劳状态机**，并不是完整的滑动窗口 PERCLOS 百分比算法。这里按实际实现描述，避免把原型能力写成已经完成的算法。
+
+## 3. 项目目录
+
+```text
 DMS_project/
-├── README.md                    # 本文件
-├── requirements.txt             # Python 依赖
-├── .env.example                 # 环境变量模板
-├── protocol.json                # 数据协议定义
+├── README.md
+├── requirements.txt
+├── .env.example
+├── protocol.json
 │
-├── pc_prototype/                # PC 端算法原型（Python + MediaPipe）
-│   ├── face_capture.py          #   摄像头采集 → 疲劳检测 → MQTT 发布
-│   └── dms_logic.py             #   独立 PERCLOS 判定（学习用）
+├── pc_prototype/
+│   ├── face_capture.py
+│   └── dms_logic.py
 │
-├── cloud_backend/               # 云端后端（PC 端运行）
-│   ├── web_backend.py           #   MQTT 订阅 → DeepSeek LLM → WebSocket + TTS
-│   └── index.html               #   ECharts 实时仪表盘大屏
+├── cloud_backend/
+│   ├── web_backend.py
+│   └── index.html
 │
-└── esp32_firmware/              # ESP32-S3 固件（C/ESP-IDF）
-    ├── CMakeLists.txt           #   项目配置
-    ├── main/
-    │   ├── config.h             #   ⚙️ 引脚定义 & 阈值配置（覃晖改这里）
-    │   ├── main.c               #   主入口（根据 TEST_MODE 选择模式）
-    │   ├── camera_test.c        #   摄像头驱动测试
-    │   ├── audio_test.c         #   MAX98357 I2S 音频放大器测试
-    │   ├── ir_led_test.c        #   红外 LED PWM 测试
-    │   ├── wifi_mqtt_test.c     #   WiFi + MQTT 连接测试
-    │   ├── peripherals_all.c    #   全外设综合测试
-    │   ├── ear_mar.c/h          #   EAR/MAR 几何算法（C 实现，廖宜乐）
-    │   ├── perclos.c/h          #   PERCLOS 疲劳判定状态机（廖宜乐）
-    │   └── dms_algorithm.c      #   全功能 DMS 主循环（廖宜乐）
-    └── components/              #   （需自行放入 esp32-camera）
+└── esp32_firmware/
+    ├── esp32_cam_fw/
+    │   ├── CMakeLists.txt
+    │   └── main/
+    │       ├── CMakeLists.txt
+    │       ├── config.h
+    │       └── main.c
+    │
+    └── esp32_s3_fw/
+        ├── CMakeLists.txt
+        └── main/
+            ├── CMakeLists.txt
+            ├── config.h
+            ├── main.c
+            ├── ear_mar.c
+            ├── ear_mar.h
+            ├── perclos.c
+            └── perclos.h
 ```
 
----
+## 4. 团队分工
 
-## 👥 分工与代码归属
+本仓库是团队项目，不能把全部代码视为单人作品。
 
-| 目录 | 负责 | 说明 |
-|---|---|---|
-| `pc_prototype/` | **陈俊毅**（队长） | PC 端算法原型，验证算法逻辑 |
-| `cloud_backend/` | **王宏博**（后端/AI） | MQTT → DeepSeek LLM → WebSocket → TTS → 大屏 |
-| `esp32_firmware/main/config.h` | **覃晖**（硬件） | 改引脚、改 TEST_MODE、改 WiFi 密码 |
-| `esp32_firmware/main/*_test.c` | **覃晖**（硬件） | 4 个硬件驱动测试，逐个验证外设 |
-| `esp32_firmware/main/ear_mar.c/h` | **廖宜乐**（算法） | EAR/MAR 几何计算 C 实现 |
-| `esp32_firmware/main/perclos.c/h` | **廖宜乐**（算法） | PERCLOS 时间基准疲劳判定 |
-| `esp32_firmware/main/dms_algorithm.c` | **廖宜乐**（算法） | 全功能 DMS 主循环（填 TODO） |
+| 成员 | 主要工作 |
+|---|---|
+| 陈俊毅（队长） | PC 端原型、系统协同 |
+| 覃晖 | 硬件与板级外设联调 |
+| 廖宜乐 | 嵌入式算法：EAR/MAR、闭眼/哈欠状态逻辑、S3 算法路径设计 |
+| 王宏博 | MQTT / WebSocket / LLM / TTS 后端 |
 
----
+### 廖宜乐的主要代码范围
 
-## 🚀 快速开始
+- `esp32_firmware/esp32_s3_fw/main/ear_mar.c/.h`
+- `esp32_firmware/esp32_s3_fw/main/perclos.c/.h`
+- Camera landmark -> S3 fatigue-state pipeline 的算法侧设计与集成工作
 
-### 1. PC 端原型（算法验证用）
+## 5. 嵌入式算法链路
 
-```bash
-cd pc_prototype
-pip install -r ../requirements.txt
-python face_capture.py       # 摄像头 + 疲劳检测
-```
+### EAR / MAR
 
-### 2. 云端后端（MQTT + LLM + 大屏）
+`ear_mar.c` 接收 68 点面部关键点，计算：
 
-```bash
-cd cloud_backend
-pip install -r ../requirements.txt
-cp ../.env.example ../.env   # 编辑 .env 填入 DeepSeek API Key
-python web_backend.py        # 启动 WebSocket + MQTT
-# 浏览器打开 cloud_backend/index.html
-```
+- EAR（Eye Aspect Ratio，眼睛纵横比）
+- MAR（Mouth Aspect Ratio，嘴部纵横比）
 
-### 3. ESP32-S3 固件
+双眼 EAR 取平均值；嘴部 MAR 由多组纵向距离与横向尺度归一化得到。
 
-```bash
-cd esp32_firmware
-# 拉取 esp32-camera 组件
-git submodule add https://github.com/espressif/esp32-camera.git components/esp32-camera
-# 编译和烧录
-idf.py set-target esp32s3
-idf.py build
-idf.py -p COMx flash monitor
-```
+### 时间状态机
 
----
+`perclos.c` 当前根据：
 
-## 🔧 覃晖 — 硬件驱动测试
+- EAR 是否低于闭眼阈值
+- MAR 是否高于哈欠阈值
+- 状态持续时间
 
-拿到代码后，打开 `main/config.h`，改 `TEST_MODE` 的值，逐项验证硬件：
+区分正常、微睡眠/持续闭眼、深度持续闭眼和哈欠事件。
 
-| TEST_MODE | 测什么 | 预期现象 | 通过标准 |
-|---|---|---|---|
-| `1` | 摄像头 | 串口输出分辨率 + FPS | 稳定 ≥15 FPS |
-| `2` | MAX98357 音频 | 听到 3 声不同音高（440/660/880Hz） | 听到声音 |
-| `3` | 红外 LED | 渐亮渐灭 + 全亮 3 秒 | 手机相机看到淡红光 |
-| `4` | WiFi+MQTT | 连 WiFi → 连 Broker → 发测试 JSON | 队长电脑收到消息 |
-| `5` | 一键综合 | 1→2→3 顺序全跑 | 全部通过 |
+这套逻辑的优势是**时间基准不依赖固定帧数**；但当前仍属于竞赛原型参数，尚未在公开仓库中提供大规模受试者统计验证。
 
-> 每测通一项，在群里报一句。全部测通后告诉廖宜乐：「硬件就绪，可以写算法了」
+## 6. S3 子系统测试模式
 
----
+`esp32_s3_fw/main/config.h` 使用 `TEST_MODE` 选择验证路径：
 
-## ⚙️ 引脚接线
+| TEST_MODE | 当前用途 |
+|---|---|
+| `1` | UART 接收测试 |
+| `2` | I2S 音频测试 |
+| `3` | IR LED 测试 |
+| `4` | Wi-Fi + MQTT 测试 |
+| `5` | 综合模式入口，目前仍待完成 |
 
-| ESP32-S3 GPIO | 连接设备 | 说明 |
-|---|---|---|
-| GPIO 21, 20 | OV2640 I2C (SDA, SCL) | 摄像头配置 |
-| GPIO 11,9,8,10,12,18,17,16 | OV2640 DVP D0-D7 | 摄像头 8-bit 并行数据 |
-| GPIO 13, 6, 7, 15 | OV2640 PCLK, VSYNC, HREF, XCLK | 摄像头控制信号 |
-| GPIO 14 | MAX98357 BCLK | I2S 位时钟 |
-| GPIO 19 | MAX98357 LRC (WS) | I2S 左右通道时钟 |
-| GPIO 22 | MAX98357 DIN | I2S 数据输入 |
-| GPIO 23 | MAX98357 SD | 音频放大器使能（或直接接3.3V） |
-| GPIO 5 | 红外 LED | 串 100Ω 限流电阻，PWM 调光 |
-| GPIO 48 | 板载状态 LED | 有人脸时亮 |
-
-> ⚠️ 如果实际接线不同，修改 `config.h` 对应宏即可
-
----
-
-## 🔊 音频架构说明
-
-ESP32-S3 使用 **MAX98357 I2S 音频放大器** 而非蜂鸣器：
-
-- **本地告警**：ESP32 通过 MAX98357 播放提示音（不同疲劳等级不同频率）
-- **AI 语音播报**：PC 云端收到 MQTT 疲劳告警 → DeepSeek 生成关怀文字 → PC 端 pyttsx3 TTS 播报
-- **未来扩展**：可将预录的语音文件存入 ESP32 Flash，直接通过 MAX98357 播放中文语音
-
----
-
-## 📊 数据协议（MQTT JSON）
+## 7. MQTT 数据协议
 
 ```json
 {
   "device_id": "ESP32_DMS_001",
-  "data": {"ear": 0.28, "mar": 0.15},
-  "status": {"fatigue_level": 0, "desc": "Normal"}
+  "data": {
+    "ear": 0.28,
+    "mar": 0.15
+  },
+  "status": {
+    "fatigue_level": 0,
+    "desc": "Normal"
+  }
 }
 ```
 
-- `fatigue_level`: 0=正常, 1=持续疲劳(冷却中), 2=微睡眠/哈欠, 3=深度睡眠
-- Topic: `dms/car/data`
+默认 topic：`dms/car/data`
 
----
+## 8. 后端原型
 
-## 🔑 关键技术决策
+`cloud_backend/web_backend.py` 当前提供：
 
-1. **时间基准，不依赖帧率** — PERCLOS 用 `esp_timer_get_time()` 毫秒计时而非帧计数
-2. **双眼平均 EAR** — 避免侧脸/单眼遮挡导致误判
-3. **抗干扰豁免** — 手遮眼时自动重置计时器，不误报
-4. **AI 冷却锁** — 4 秒内不重复触发 LLM，节省 API 费用
-5. **近红外物理过滤** — 850nm 滤光片 + 红外补光，全黑环境可用
-6. **I2S 音频输出** — MAX98357 替代蜂鸣器，支持真正的语音播报
+- MQTT 消息接收
+- WebSocket 推送到网页大屏
+- DeepSeek API 可选生成提醒文本
+- API 不可用时使用本地语料 fallback
+- 本地 pyttsx3 TTS
+
+API Key 通过环境变量读取，不应硬编码进仓库。
+
+## 9. 当前限制
+
+- Camera 侧还没有完成 68 点关键点提取接入。
+- UART 当前仍使用占位 payload 验证链路。
+- S3 综合运行路径尚未完成。
+- 尚未公开可复现的准确率、误报率、端到端延迟、功耗和长期稳定性 benchmark。
+- 当前阈值属于项目原型配置，不应理解为医学或安全标准。
+
+## 10. 下一步
+
+1. 接入 Camera 侧关键点提取。
+2. 冻结 UART 关键点 / 事件数据协议。
+3. 完成 S3 综合处理模式。
+4. 给 EAR/MAR 和状态机加入 host-side 单元测试。
+5. 完成板级端到端验证并记录证据。
+6. 再进行 latency / robustness / power benchmark。
